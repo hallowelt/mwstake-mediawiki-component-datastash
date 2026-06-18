@@ -9,7 +9,9 @@ CREATE TABLE /*_*/mws_data_stash (
   mwds_touched BINARY(14) DEFAULT NULL,
   mwds_sha1 VARCHAR(40) NOT NULL,
   mwds_data LONGTEXT NOT NULL,
+  mwds_wiki_id VARCHAR(255) NOT NULL,
   INDEX mwds_lookup_index_unique (
-    mwds_owner, mwds_owner_type, mwds_key
+    mwds_owner, mwds_owner_type, mwds_key,
+    mwds_wiki_id
   )
 ) /*$wgDBTableOptions*/;

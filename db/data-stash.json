@@ -47,12 +47,20 @@
 				"options": {
 					"notnull": true
 				}
+			},
+			{
+				"name": "mwds_wiki_id",
+				"type": "string",
+				"options": {
+					"length": 255,
+					"notnull": true
+				}
 			}
 		],
 		"indexes": [
 			{
 				"name": "mwds_lookup_index_unique",
-				"columns": [ "mwds_owner", "mwds_owner_type", "mwds_key" ],
+				"columns": [ "mwds_owner", "mwds_owner_type", "mwds_key", "mwds_wiki_id" ],
 				"unique": false
 			}
 		],
