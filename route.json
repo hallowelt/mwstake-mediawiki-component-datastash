@@ -1,0 +1,17 @@
+[
+	{
+		"path": "/mws/v1/data-stash/{key}",
+		"class": "MWStake\\MediaWiki\\Component\\DataStash\\Rest\\GetStashDataHandler",
+		"services": [
+			"MWStake.DataStash"
+		]
+	},
+	{
+		"method": "POST",
+		"path": "/mws/v1/data-stash/{key}",
+		"class": "MWStake\\MediaWiki\\Component\\DataStash\\Rest\\SetStashDataHandler",
+		"services": [
+			"MWStake.DataStash"
+		]
+	}
+]

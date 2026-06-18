@@ -1,5 +1,6 @@
 <?php
 
+use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use MWStake\MediaWiki\Component\DataStash\StashManager;
 
@@ -8,7 +9,7 @@ return [
 		return new StashManager(
 			$services->getDBLoadBalancer(),
 			$services->getObjectCacheFactory(),
-			\MediaWiki\Logger\LoggerFactory::getInstance( 'MWStake.DataStash' )
+			LoggerFactory::getInstance( 'MWStake.DataStash' )
 		);
 	}
 ];

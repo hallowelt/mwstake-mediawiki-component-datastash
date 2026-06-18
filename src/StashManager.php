@@ -7,6 +7,8 @@ use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\WikiMap\WikiMap;
 use Psr\Log\LoggerInterface;
+use Wikimedia\LightweightObjectStore\ExpirationAwareness;
+use Wikimedia\ObjectCache\BagOStuff;
 use Wikimedia\Rdbms\ILoadBalancer;
 
 class StashManager {
@@ -16,12 +18,16 @@ class StashManager {
 	/** @var string */
 	private string $wikiId;
 
+	/** @var BagOStuff */
+	private BagOStuff $cache;
+
 	public function __construct(
 		private readonly ILoadBalancer $lb,
 		private readonly \ObjectCacheFactory $cacheFactory,
 		private readonly LoggerInterface $logger
 	) {
 		$this->wikiId = WikiMap::getCurrentWikiId();
+		$this->cache = $this->cacheFactory->getLocalClusterInstance();
 	}
 
 	/**
@@ -48,25 +54,80 @@ class StashManager {
 		$this->doStash( $key, $value, $forUser, null );
 	}
 
-	public function get( string $key, UserIdentity $forUser ) {
-		$localCC = $this->getCacheKey( $key, $forUser, $this->wikiId );
-		$globalCC = $this->getCacheKey( $key, $forUser, null );
-
-		$cache = $this->cacheFactory->getLocalClusterInstance();
-		$values = $cache->getMulti( [ $localCC, $globalCC ] );
-		$x = 0;
+	/**
+	 * @param string $key
+	 * @param UserIdentity $forUser
+	 * @param mixed|null $default
+	 * @return false|mixed
+	 */
+	public function get( string $key, UserIdentity $forUser, $default = null ) {
+		if ( !$this->assertValidUser( $forUser ) ) {
+			return $default;
+		}
+		$cacheKey = $this->getCacheKey( $key, $forUser, $this->wikiId );
+		return $this->getCached( $key, $forUser, $this->wikiId, $cacheKey ) ?? $default;
 	}
 
 	/**
 	 * @param string $key
 	 * @param UserIdentity $forUser
-	 * @return bool
+	 * @param mixed|null $default
+	 * @return array|null
 	 */
-	public function has( string $key, UserIdentity $forUser ): bool {
-		$this->assertValidUser( $forUser );
-		// Has locally, or has globally
-		$sha1 = $this->getSha1( $key, $forUser, $this->wikiId ) ?? $this->getSha1( $key, $forUser, null );
-		return $sha1 !== null;
+	public function getGlobal( string $key, UserIdentity $forUser, $default = null ): ?array {
+		if ( !$this->assertValidUser( $forUser ) ) {
+			return $default;
+		}
+		$cacheKey = $this->getCacheKey( $key, $forUser, null );
+		return $this->getCached( $key, $forUser, null, $cacheKey ) ?? $default;
+	}
+
+	/**
+	 * @param string $key
+	 * @param UserIdentity $forUser
+	 * @param string|null $forWiki
+	 * @param string $cacheKey
+	 * @return array|null
+	 */
+	private function getCached( string $key, UserIdentity $forUser, ?string $forWiki, string $cacheKey ): ?array {
+		$cachedValue = $this->cache->get( $cacheKey );
+		if ( !is_array( $cachedValue ) ) {
+			$dbValue = $this->getFromDb( $key, $forUser, $forWiki );
+			if ( $dbValue === null ) {
+				return null;
+			}
+			$this->cache->set( $cacheKey, $dbValue, ExpirationAwareness::TTL_MONTH );
+			return $dbValue;
+		}
+		return $cachedValue;
+	}
+
+	/**
+	 * @param string $key
+	 * @param UserIdentity $forUser
+	 * @param string|null $forWiki
+	 * @return false|mixed
+	 */
+	private function getFromDb( string $key, UserIdentity $forUser, ?string $forWiki ): ?array {
+		$db = $this->lb->getConnection( DB_PRIMARY );
+		$row = $db->newSelectQueryBuilder()
+			->field( 'mwds_data' )
+			->from( 'mws_data_stash' )
+			->where( [
+				'mwds_key' => $key,
+				'mwds_owner' => $forUser->getId(),
+				'mwds_owner_type' => 'user',
+				'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID,
+			] )
+			->caller( __METHOD__ )
+			->fetchField();
+
+		if ( !$row ) {
+			return null;
+		}
+
+		$json = json_decode( $row, true );
+		return is_array( $json ) ? $json : false;
 	}
 
 	/**
@@ -77,7 +138,9 @@ class StashManager {
 	 * @return void
 	 */
 	private function doStash( string $key, JsonSerializable|array $value, UserIdentity $forUser, ?string $forWiki ) {
-		$this->assertValidUser( $forUser );
+		if ( !$this->assertValidUser( $forUser ) ) {
+			return;
+		}
 		$data = json_encode( $value );
 		$sha1 = sha1( $data );
 
@@ -85,64 +148,67 @@ class StashManager {
 			// Already set - no change
 			return;
 		}
+		$db = $this->lb->getConnection( DB_PRIMARY );
+		// Get wiki_id of the currently stored value, local wiki or global
+		$storedWikiId = $this->getField( $key, $forUser, $forWiki, 'mwds_wiki_id' );
 
+		try {
+			if ( $storedWikiId ) {
+				$db->newUpdateQueryBuilder()
+					->update( 'mws_data_stash' )
+					->set( [
+						'mwds_data' => $data,
+						'mwds_sha1' => $sha1,
+						'mwds_touched' => $db->timestamp(),
+					] )
+					->where( [
+						'mwds_key' => $key,
+						'mwds_owner' => $forUser->getId(),
+						'mwds_owner_type' => 'user',
+						'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID
+					] )
+					->caller( __METHOD__ )
+					->execute();
+			} else {
+				$db->newInsertQueryBuilder()
+					->insert( 'mws_data_stash' )
+					->row( [
+						'mwds_key' => $key,
+						'mwds_owner' => $forUser->getId(),
+						'mwds_owner_type' => 'user',
+						'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID,
+						'mwds_data' => $data,
+						'mwds_sha1' => $sha1,
+						'mwds_touched' => $db->timestamp()
+					] )
+					->caller( __METHOD__ )
+					->execute();
+			}
 
-		DeferredUpdates::addCallableUpdate( function() {
-			$db = $this->lb->getConnection( DB_PRIMARY );
-			// Get wiki_id of the currently stored value, local wiki or global
-			$storedWikiId =
-				$this->getField( $key, $forUser, $this->wikiId, 'mwds_wiki_id' ) ??
-				$this->getField( $key, $forUser, null, 'mwds_wiki_id' );
+			$this->logger->info( 'Set stash for key "{key}" and user "{userName}" on wiki "{wikiId}"', [
+				'key' => $key,
+				'userName' => $forUser->getName(),
+				'wikiId' => $forWiki ?: self::GLOBAL_STASH_ID
+			] );
 
-			try {
-				if ( $storedWikiId ) {
-					$db->newUpdateQueryBuilder()
-						->update( 'mws_data_stash' )
-						->set( [
-							'mwds_data' => $data,
-							'mwds_sha1' => $sha1,
-							'mwds_touched' => $db->timestamp(),
-							'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID
-						] )
-						->where( [
-							'mwds_key' => $key,
-							'mwds_owner' => $forUser->getId(),
-							'mwds_owner_type' => 'user',
-							'mwds_wiki_id' => $storedWikiId
-						] )
-						->caller( __METHOD__ )
-						->execute();
-				} else {
-					$db->newInsertQueryBuilder()
-						->insert( 'mws_data_stash' )
-						->row( [
-							'mwds_key' => $key,
-							'mwds_owner' => $forUser->getId(),
-							'mwds_owner_type' => 'user',
-							'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID,
-							'mwds_data' => $data,
-							'mwds_sha1' => $sha1,
-							'mwds_touched' => $db->timestamp()
-						] )
-						->caller( __METHOD__ )
-						->execute();
-				}
-
-				$this->logger->info( 'Set stash for key "{key}" and user "{userName}" on wiki "{wikiId}"', [
-					'key' => $key,
-					'userName' => $forUser->getName(),
-					'wikiId' => $forWiki ?: self::GLOBAL_STASH_ID
-				] );
-
-				$this->invalidateCache( $key, $forUser );
-			} catch ( \Throwable $throwable ) {
-				$this->logger->error( 'Error setting stash for key "{key}" and user "{userName}" on wiki "{wikiId}": {error}', [
+			$this->invalidateCache(
+				$forWiki ?
+					$this->getCacheKey( $key, $forUser, $forWiki ) :
+					$this->getCacheKey( $key, $forUser, null )
+			);
+		} catch ( \Throwable $throwable ) {
+			$this->logger->error(
+				'Error setting stash for key "{key}" and user "{userName}" on wiki "{wikiId}": {error}',
+				[
 					'key' => $key,
 					'userName' => $forUser->getName(),
 					'wikiId' => $forWiki ?: self::GLOBAL_STASH_ID,
 					'error' => $throwable->getMessage()
-				] );
-			}
+				]
+			);
+		}
+
+		DeferredUpdates::addCallableUpdate( static function () use ( $key, $data, $sha1, $forUser, $forWiki ) {
 		} );
 	}
 
@@ -153,11 +219,10 @@ class StashManager {
 	 * @return string
 	 */
 	private function getCacheKey( string $key, UserIdentity $forUser, ?string $forWiki ): string {
-		$cache = $this->cacheFactory->getLocalServerInstance();
 		if ( $forWiki === null ) {
-			return $cache->makeGlobalKey( 'mws-datastash', $key, $forUser->getName() );
+			return $this->cache->makeGlobalKey( 'mws-datastash', $key, $forUser->getName() );
 		}
-		return $cache->makeKey( 'mws-datastash', $key, $forUser->getName() );
+		return $this->cache->makeKey( 'mws-datastash', $key, $forUser->getName() );
 	}
 
 	/**
@@ -179,7 +244,7 @@ class StashManager {
 	 */
 	private function getField( string $key, UserIdentity $forUser, ?string $forWiki, string $field ): ?string {
 		$res = $this->lb->getConnection( DB_REPLICA )->newSelectQueryBuilder()
-			->select( $field )
+			->field( $field )
 			->from( 'mws_data_stash' )
 			->where( [
 				'mwds_owner' => $forUser->getId(),
@@ -193,25 +258,25 @@ class StashManager {
 
 	/**
 	 * @param UserIdentity $forUser
-	 * @return void
+	 * @return bool
 	 */
-	private function assertValidUser( UserIdentity $forUser ): void {
+	private function assertValidUser( UserIdentity $forUser ): bool {
 		if ( !$forUser->isRegistered() ) {
-			throw new \InvalidArgumentException( 'Only registered users can have stashed data' );
+			$this->logger->warning( 'Attempted to stash data for an anon user' );
+			return false;
 		}
+		return true;
 	}
 
 	/**
-	 * @param string $key
-	 * @param UserIdentity $forUser
+	 * @param string $cacheKey
 	 * @return void
 	 */
-	private function invalidateCache( string $key, UserIdentity $forUser) {
-		$cacheKeyGlobal = $this->getCacheKey( $key, $forUser, null );
-		$cacheKeyLocal = $this->getCacheKey( $key, $forUser, $this->wikiId );
+	private function invalidateCache( string $cacheKey ) {
+		$this->cache->set( $cacheKey, null, 1 );
 
-		$cache = $this->cacheFactory->getLocalServerInstance();
-		$cache->delete( $cacheKeyGlobal );
-		$cache->delete( $cacheKeyLocal );
+		$this->logger->info( 'Invalidated cache for key "{cacheKey}"', [
+			'cacheKey' => $cacheKey
+		] );
 	}
 }

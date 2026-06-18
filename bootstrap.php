@@ -24,4 +24,6 @@ MWStake\MediaWiki\ComponentLoader\Bootstrapper::getInstance()
 			);
 		} );
 	};
+
+	$GLOBALS['wgRestAPIAdditionalRouteFiles'][] = wfRelativePath( __DIR__ . '/route.json', $GLOBALS['IP'] );
 } );
