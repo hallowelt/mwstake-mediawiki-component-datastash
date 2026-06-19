@@ -148,67 +148,67 @@ class StashManager {
 			// Already set - no change
 			return;
 		}
-		$db = $this->lb->getConnection( DB_PRIMARY );
-		// Get wiki_id of the currently stored value, local wiki or global
-		$storedWikiId = $this->getField( $key, $forUser, $forWiki, 'mwds_wiki_id' );
+		$method = __METHOD__;
 
-		try {
-			if ( $storedWikiId ) {
-				$db->newUpdateQueryBuilder()
-					->update( 'mws_data_stash' )
-					->set( [
-						'mwds_data' => $data,
-						'mwds_sha1' => $sha1,
-						'mwds_touched' => $db->timestamp(),
-					] )
-					->where( [
-						'mwds_key' => $key,
-						'mwds_owner' => $forUser->getId(),
-						'mwds_owner_type' => 'user',
-						'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID
-					] )
-					->caller( __METHOD__ )
-					->execute();
-			} else {
-				$db->newInsertQueryBuilder()
-					->insert( 'mws_data_stash' )
-					->row( [
-						'mwds_key' => $key,
-						'mwds_owner' => $forUser->getId(),
-						'mwds_owner_type' => 'user',
-						'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID,
-						'mwds_data' => $data,
-						'mwds_sha1' => $sha1,
-						'mwds_touched' => $db->timestamp()
-					] )
-					->caller( __METHOD__ )
-					->execute();
-			}
+		DeferredUpdates::addCallableUpdate( function () use ( $key, $data, $sha1, $forUser, $forWiki, $method ) {
+			$db = $this->lb->getConnection( DB_PRIMARY );
+			// Get wiki_id of the currently stored value, local wiki or global
+			$storedWikiId = $this->getField( $key, $forUser, $forWiki, 'mwds_wiki_id' );
+			try {
+				if ( $storedWikiId ) {
+					$db->newUpdateQueryBuilder()
+						->update( 'mws_data_stash' )
+						->set( [
+							'mwds_data' => $data,
+							'mwds_sha1' => $sha1,
+							'mwds_touched' => $db->timestamp(),
+						] )
+						->where( [
+							'mwds_key' => $key,
+							'mwds_owner' => $forUser->getId(),
+							'mwds_owner_type' => 'user',
+							'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID
+						] )
+						->caller( $method )
+						->execute();
+				} else {
+					$db->newInsertQueryBuilder()
+						->insert( 'mws_data_stash' )
+						->row( [
+							'mwds_key' => $key,
+							'mwds_owner' => $forUser->getId(),
+							'mwds_owner_type' => 'user',
+							'mwds_wiki_id' => $forWiki ?: self::GLOBAL_STASH_ID,
+							'mwds_data' => $data,
+							'mwds_sha1' => $sha1,
+							'mwds_touched' => $db->timestamp()
+						] )
+						->caller( $method )
+						->execute();
+				}
 
-			$this->logger->info( 'Set stash for key "{key}" and user "{userName}" on wiki "{wikiId}"', [
-				'key' => $key,
-				'userName' => $forUser->getName(),
-				'wikiId' => $forWiki ?: self::GLOBAL_STASH_ID
-			] );
-
-			$this->invalidateCache(
-				$forWiki ?
-					$this->getCacheKey( $key, $forUser, $forWiki ) :
-					$this->getCacheKey( $key, $forUser, null )
-			);
-		} catch ( \Throwable $throwable ) {
-			$this->logger->error(
-				'Error setting stash for key "{key}" and user "{userName}" on wiki "{wikiId}": {error}',
-				[
+				$this->logger->info( 'Set stash for key "{key}" and user "{userName}" on wiki "{wikiId}"', [
 					'key' => $key,
 					'userName' => $forUser->getName(),
-					'wikiId' => $forWiki ?: self::GLOBAL_STASH_ID,
-					'error' => $throwable->getMessage()
-				]
-			);
-		}
+					'wikiId' => $forWiki ?: self::GLOBAL_STASH_ID
+				] );
 
-		DeferredUpdates::addCallableUpdate( static function () use ( $key, $data, $sha1, $forUser, $forWiki ) {
+				$this->invalidateCache(
+					$forWiki ?
+						$this->getCacheKey( $key, $forUser, $forWiki ) :
+						$this->getCacheKey( $key, $forUser, null )
+				);
+			} catch ( \Throwable $throwable ) {
+				$this->logger->error(
+					'Error setting stash for key "{key}" and user "{userName}" on wiki "{wikiId}": {error}',
+					[
+						'key' => $key,
+						'userName' => $forUser->getName(),
+						'wikiId' => $forWiki ?: self::GLOBAL_STASH_ID,
+						'error' => $throwable->getMessage()
+					]
+				);
+			}
 		} );
 	}
 

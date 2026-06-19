@@ -4,7 +4,7 @@ if ( defined( 'MWSTAKE_MEDIAWIKI_COMPONENT_DATASTASH_VERSION' ) ) {
 	return;
 }
 
-define( 'MWSTAKE_MEDIAWIKI_COMPONENT_DATASTASH_VERSION', '1.0.0' );
+define( 'MWSTAKE_MEDIAWIKI_COMPONENT_DATASTASH_VERSION', '1.0.1' );
 
 MWStake\MediaWiki\ComponentLoader\Bootstrapper::getInstance()
 ->register( 'datastash', static function () {
@@ -26,4 +26,11 @@ MWStake\MediaWiki\ComponentLoader\Bootstrapper::getInstance()
 	};
 
 	$GLOBALS['wgRestAPIAdditionalRouteFiles'][] = wfRelativePath( __DIR__ . '/route.json', $GLOBALS['IP'] );
+
+	$GLOBALS['wgResourceModules']['ext.mws.datastash'] = [
+		'scripts' => [
+			'api.js'
+		],
+		'localBasePath' => __DIR__ . '/resources'
+	];
 } );

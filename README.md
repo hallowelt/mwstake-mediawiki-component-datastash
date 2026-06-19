@@ -28,6 +28,8 @@ It is possible to store same key both globally and locally, although not recomme
 
 ### REST
 
+Values over REST API are only for current user, so no ability to set/get data for other users.
+
 `GET rest.php/mws/v1/data-stash/{key}` - get stashed data for current user.
 - `key` - key of the stashed data
 - query param `global` - if set to `1`, global stash will be returned, otherwise local stash for current wiki
@@ -41,4 +43,16 @@ It is possible to store same key both globally and locally, although not recomme
     "data": { "some": "value" },
     "global": true
 }
+```
+
+### Client side integration
+
+```js
+// mw.loader.load( 'ext.mws.datastash' )
+
+await mws.dataStash.set( 'foo', { some: 'value' } );
+await mws.dataStash.setGlobal( 'fooGlobal', { some: 'value' } );
+
+const value = await mws.dataStash.get( 'foo' );
+const valueGlobal = await mws.dataStash.getGlobal( 'fooGlobal' );
 ```
