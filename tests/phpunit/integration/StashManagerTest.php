@@ -1,10 +1,10 @@
 <?php
 
-namespace MWStake\MediaWiki\Component\DataStash\Tests;
+namespace MWStake\MediaWiki\Component\DataStash\Tests\Integration;
 
+use MediaWikiIntegrationTestCase;
 use MWStake\MediaWiki\Component\DataStash\StashManager;
 use PHPUnit\Framework\MockObject\MockObject;
-use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Wikimedia\ObjectCache\BagOStuff;
 use Wikimedia\Rdbms\ILoadBalancer;
@@ -15,7 +15,7 @@ use Wikimedia\Rdbms\ILoadBalancer;
 /**
  * @coversDefaultClass \MWStake\MediaWiki\Component\DataStash\StashManager
  */
-class StashManagerTest extends TestCase {
+class StashManagerTest extends MediaWikiIntegrationTestCase {
 
 	private function makeUser( bool $registered = true ): MockObject {
 		$user = $this->getMockBuilder( \MediaWiki\User\UserIdentity::class )
