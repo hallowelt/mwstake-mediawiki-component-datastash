@@ -9,8 +9,8 @@ Data can be stashed for current wiki or globally, accessible across wikis in the
 
 ```php
 /** @var \MWStake\MediaWiki\Component\DataStash\StashManager $stash */
-$stash = \MediaWiki\MediaWikiServices::getInstance()->getService( 'MWStake.DataStash' );
-$user = \RequestContext::getMain()->getUser();
+$stash = MediaWikiServices::getInstance()->getService( 'MWStake.DataStash' );
+$user = RequestContext::getMain()->getUser();
 
 $stash->stash( 'myKey', [ 'some' => 'value' ], $user );
 

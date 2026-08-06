@@ -2,6 +2,7 @@
 
 namespace MWStake\MediaWiki\Component\DataStash\Rest;
 
+use MediaWiki\Context\RequestContext;
 use MediaWiki\Rest\SimpleHandler;
 use MWStake\MediaWiki\Component\DataStash\StashManager;
 use Wikimedia\ParamValidator\ParamValidator;
@@ -22,7 +23,7 @@ class SetStashDataHandler extends SimpleHandler {
 	public function execute() {
 		$params = $this->getValidatedParams();
 		$body = $this->getValidatedBody();
-		$user = \RequestContext::getMain()->getUser();
+		$user = RequestContext::getMain()->getUser();
 
 		$key = $params['key'];
 		if ( $body['global'] ) {
