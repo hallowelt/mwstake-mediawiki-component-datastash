@@ -2,6 +2,7 @@
 
 namespace MWStake\MediaWiki\Component\DataStash\Tests\Integration;
 
+use MediaWiki\ObjectCache\ObjectCacheFactory;
 use MediaWikiIntegrationTestCase;
 use MWStake\MediaWiki\Component\DataStash\StashManager;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -28,7 +29,7 @@ class StashManagerTest extends MediaWikiIntegrationTestCase {
 	}
 
 	private function makeCacheFactory( BagOStuff $cache ): MockObject {
-		$cacheFactory = $this->getMockBuilder( \ObjectCacheFactory::class )
+		$cacheFactory = $this->getMockBuilder( ObjectCacheFactory::class )
 			->disableOriginalConstructor()
 			->onlyMethods( [ 'getLocalClusterInstance' ] )
 			->getMock();

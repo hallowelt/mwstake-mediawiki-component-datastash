@@ -4,6 +4,7 @@ namespace MWStake\MediaWiki\Component\DataStash;
 
 use JsonSerializable;
 use MediaWiki\Deferred\DeferredUpdates;
+use MediaWiki\ObjectCache\ObjectCacheFactory;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\WikiMap\WikiMap;
 use Psr\Log\LoggerInterface;
@@ -23,7 +24,7 @@ class StashManager {
 
 	public function __construct(
 		private readonly ILoadBalancer $lb,
-		private readonly \ObjectCacheFactory $cacheFactory,
+		private readonly ObjectCacheFactory $cacheFactory,
 		private readonly LoggerInterface $logger
 	) {
 		$this->wikiId = WikiMap::getCurrentWikiId();
